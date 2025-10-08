@@ -1,0 +1,44 @@
+{
+  "day_num": 2,
+  "player": {
+    "hp": 20,
+    "max_hp": 20,
+    "wood": 0,
+    "food": 2,
+    "seeds": 0,
+    "damage": 6,
+    "gather_bonus": 2
+  },
+  "fences": {
+    "North": {
+      "hp": 9,
+      "max_hp": 30
+    },
+    "East": {
+      "hp": 24,
+      "max_hp": 30
+    },
+    "South": {
+      "hp": 30,
+      "max_hp": 30
+    },
+    "West": {
+      "hp": 11,
+      "max_hp": 30
+    }
+  },
+  "crafted": [
+    "Reinforced Fences (10 wood)",
+    "Spear",
+    "Trap",
+    "Axe",
+    "Hoe"
+  ],
+  "reinforce_cost": 15,
+  "has_field": true,
+  "field_state": "empty",
+  "field_timer": 0,
+  "field_watered": 0,
+  "campfire_on": true,
+  "traps": 0
+}
