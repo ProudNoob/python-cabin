@@ -24,11 +24,11 @@ class Player:
     damage: int = 4
 
     def update_stats(self, day_num: int):
-        self.max_hp = self.base_hp + day_num * 2
-        self.damage = self.base_damage + (day_num // 2)
-        # heal if new max_hp exceeds current hp
-        if self.hp > self.max_hp:
-            self.hp = self.max_hp
+        # Gentle, diminishing scaling
+        self.max_hp = self.base_hp + int(day_num * 1.2)  # slower HP gain
+        self.damage = self.base_damage + (day_num // 4)  # +1 dmg per 4 days
+        # Only small passive heal each morning
+        self.hp = min(self.hp + 2, self.max_hp)
 
     def heal(self, amount: int) -> int:
         before = self.hp
@@ -84,7 +84,6 @@ class GameState:
         "West":  Fence("West Fence"),
     })
     alive: bool = True
-    crafted: set = field(default_factory=set)
     reinforce_cost: int = 10
     traps: int = 0
     defense_bonus: float = 0.0
@@ -98,6 +97,7 @@ class GameState:
     arrows: int = 0
     has_watchtower: bool = False
     in_tower: bool = False
+    upgrades: set = field(default_factory=set)
 
     def fence(self, side: str) -> Fence:
         return self.fences[side]

@@ -34,8 +34,9 @@ def _print_board(gs: GameState, enemy_queues: Dict[str, List[Enemy]], turn: int)
     clock = f"{int(hour):02d}:{'30' if hour % 1 else '00'}"
 
     print(DIV)
-    mode = "🏰 In Tower" if gs.in_tower else "🛡️ On Ground"
-    print(f" NIGHT — Day {gs.day_num} | Time {clock} | Mode: {mode}")
+    mode = "🏰 Tower Mode" if gs.in_tower else "🛡️ Ground Mode"
+    side = f"covering {gs.player.side}" if gs.in_tower else f"at {gs.player.side}"
+    print(f" NIGHT — Day {gs.day_num} | {mode} ({side})")
     print(f" You are defending: [{gs.player.side}]   HP {gs.player.hp}/{gs.player.max_hp}")
     print(" Fences:")
     for s in SIDES:
@@ -48,80 +49,68 @@ def _print_board(gs: GameState, enemy_queues: Dict[str, List[Enemy]], turn: int)
 
 def _player_menu(gs) -> str:
     print("Choose your action:")
-    print(" 1) Move North")
-    print(" 2) Move East")
-    print(" 3) Move South")
-    print(" 4) Move West")
+
+    if gs.in_tower:
+        print(" [Tower Mode]")
+        print(" 1) Cover North (0 turns)")
+        print(" 2) Cover East  (0 turns)")
+        print(" 3) Cover South (0 turns)")
+        print(" 4) Cover West  (0 turns)")
+    else:
+        print(" 1) Move North")
+        print(" 2) Move East")
+        print(" 3) Move South")
+        print(" 4) Move West")
+
     print(" 5) Attack")
     print(" 6) Defend")
     print(" 7) Wait")
     if gs.has_watchtower:
         if not gs.in_tower:
-            print(" 8) Climb tower (costs 1 turn)")
+            print(" 8) Climb tower (1 turn)")
         else:
-            print(" 8) Climb down (costs 1 turn)")
+            print(" 8) Climb down (1 turn)")
     return input("> ").strip()
 
 def _resolve_player_action(gs: GameState, enemy_queues: Dict[str, List[Enemy]]) -> bool:
     gs.player.defending = False
     choice = _player_menu(gs)
+    # Tower cover / movement handling
     if choice in ("1", "2", "3", "4"):
         target = {"1": "North", "2": "East", "3": "South", "4": "West"}[choice]
-        if gs.player.side == target:
-            print(f"You're already at the {target} side — no need to move.")
-            return False
-        gs.player.side = target
-        print(f"You dash to the {target} side.")
-        return True
+        if gs.in_tower:
+            # Instantly switch focus side
+            gs.player.side = target
+            print(f"You pivot your bow toward the {target} side. (No time lost)")
+            return False  # does NOT consume a turn
+        else:
+            # normal ground movement
+            if gs.player.side == target:
+                print(f"You're already at the {target} fence.")
+                return False
+            gs.player.side = target
+            print(f"You dash to the {target} side.")
+            return True
 
     if choice == "5":
-        # --- RANGED ATTACK OPTION ---
-        if gs.has_bow and gs.arrows > 0:
-            # Determine possible sides based on watchtower
-            if gs.has_watchtower and gs.in_tower:
-                target_side = input("Shoot which side? (N/E/S/W): ").strip().lower()
-                side_map = {"n": "North", "e": "East", "s": "South", "w": "West"}
-                side = side_map.get(target_side, gs.player.side)
-            else:
-                # Can shoot current or adjacent sides
-                if gs.player.side in ["North", "South"]:
-                    valid_sides = ["North", "South", "East", "West"]
-                    valid_sides.remove("South" if gs.player.side == "North" else "North")
-                else:
-                    valid_sides = ["North", "South", "East", "West"]
-                    valid_sides.remove("West" if gs.player.side == "East" else "East")
-                print("Choose a side to shoot:")
-                for i, s in enumerate(valid_sides, 1):
-                    print(f" {i}) {s}")
-                pick = input("> ").strip()
-                try:
-                    side = valid_sides[int(pick) - 1]
-                except (ValueError, IndexError):
-                    print("Invalid choice. Shooting current side.")
-                    side = gs.player.side
-
-            q = enemy_queues[side]
-            if not q:
-                print(f"No enemy present on {side}. Arrow wasted.")
-                gs.arrows -= 1
-                return True
-
+        side = gs.player.side  # whatever you’re covering
+        q = enemy_queues[side]
+        if not q:
+            print(f"No enemies on {side}.")
+            return True
+        if gs.has_bow and gs.arrows > 0 and gs.in_tower:
             target = min(q, key=lambda e: e.hp)
             dmg = gs.player.damage + random.randint(0, 2)
             target.hp = max(0, target.hp - dmg)
             gs.arrows -= 1
-            print(f"🏹 Arrow hits {target.name} on {side} for {dmg} damage! ({gs.arrows} left)")
+            print(f"🏹 You loose an arrow at the {target.name} ({side}) for {dmg}! "
+                  f"{gs.arrows} arrows left.")
             if target.hp <= 0:
-                print(f"The {target.name} collapses.")
                 q.remove(target)
+                print(f"The {target.name} falls.")
             return True
 
         # --- MELEE FALLBACK ---
-        side = gs.player.side
-        q = enemy_queues[side]
-        if not q:
-            print(f"No enemy in reach on the {side} side.")
-            return True
         target = min(q, key=lambda e: e.hp)
         dmg = gs.player.damage + random.randint(0, 2)
         target.hp = max(0, target.hp - dmg)

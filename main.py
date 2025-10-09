@@ -22,7 +22,7 @@ def save_game(gs: GameState):
             "gather_bonus": getattr(gs.player, "gather_bonus", 0),
         },
         "fences": {s: {"hp": f.hp, "max_hp": f.max_hp} for s, f in gs.fences.items()},
-        "crafted": list(getattr(gs, "crafted", [])),
+        "upgrades": list(getattr(gs, "upgrades", [])),
         "reinforce_cost": getattr(gs, "reinforce_cost", 10),
         "has_field": getattr(gs, "has_field", False),
         "field_state": getattr(gs, "field_state", "empty"),
@@ -104,116 +104,109 @@ def day_menu(gs):
 
 def do_craft(gs: GameState):
     reinforce_cost = getattr(gs, "reinforce_cost", 10)
-    recipes = [
-        ("Spear", 5, "Increase night attack damage by +2."),
-        ("Axe", 6, "Gather +2 extra wood each time."),
-        ("Hoe", 4, "Unlock 'Tend Field' action to grow food."),
-        ("Bow", 8, "Craft a bow to shoot adjacent sides with arrows."),
-        ("Arrow Batch", 2, "Craft 5 arrows for ranged attacks."),
-        ("Watchtower", 25, "Build a tower to shoot from any side, but you cannot defend directly."),
-        (f"Reinforced Fences ({reinforce_cost} wood)", reinforce_cost, "Boost all fence max HP by +10, cost rises each time."),
-        ("Trap", 5, "Consumes 5 wood. Kills 1–3 monsters from each new wave."),
+
+    # ---- Permanent Upgrades ----
+    # (name, cost, desc, prereq)
+    upgrades = [
+        ("Spear", 5, "Increase night attack damage by +2.", None),
+        ("Axe", 6, "Gather +2 extra wood each time.", None),
+        ("Hoe", 4, "Unlock 'Tend Field' to grow food.", None),
+        ("Bow", 8, "Allows ranged attacks using arrows.", "Spear"),  # must have spear
+        ("Watchtower", 25, "Shoot from any side but cannot defend.", "Bow"),  # must have bow
     ]
-    owned = getattr(gs, "crafted", set())
-    if not hasattr(gs, "crafted"):
-        gs.crafted = set()
 
-    print("\nAvailable Crafting Recipes:")
-    for i, (name, cost, desc) in enumerate(recipes, 1):
-        mark = "✅" if name in gs.crafted else " "
-        print(f" {i}) {name:<18} ({cost} wood) {mark}\n     {desc}")
+    # ---- Consumables / Repeatables ----
+    craftables = [
+        (f"Reinforce Fences ({reinforce_cost} wood)", reinforce_cost, "Increase all fence max HP by +10, cost rises each time."),
+        ("Trap", 5, "Place a trap that kills 2–4 monsters when a new wave spawns."),
+        ("Arrow Batch", 2, "Craft 5 arrows for ranged attacks."),
+    ]
 
-    choice = input("> Choose item number or Enter to cancel: ").strip()
-    if not choice.isdigit():
+    # ---- Display ----
+    print("\n== Permanent Upgrades ==")
+    for i, (name, cost, desc, prereq) in enumerate(upgrades, 1):
+        mark = "✅" if name in gs.upgrades else " "
+        prereq_text = f"(requires {prereq})" if prereq else ""
+        print(f" U{i}) {name:<18} ({cost} wood) {mark} {prereq_text}\n     {desc}")
+
+    print("\n== Craftable Items ==")
+    for i, (name, cost, desc) in enumerate(craftables, 1):
+        print(f" C{i}) {name:<18} ({cost} wood)\n     {desc}")
+
+    choice = input("> Choose item (e.g. U1, C2) or Enter to cancel: ").strip().lower()
+    if not choice:
         print("Cancelled.")
         return
-    idx = int(choice) - 1
-    if not (0 <= idx < len(recipes)):
-        print("Invalid choice.")
+
+    # ---- Handle Upgrades ----
+    if choice.startswith("u"):
+        idx = int(choice[1:]) - 1
+        if not (0 <= idx < len(upgrades)):
+            print("Invalid choice.")
+            return
+        name, cost, desc, prereq = upgrades[idx]
+
+        # prerequisite check
+        if prereq and prereq not in gs.upgrades:
+            print(f"You need {prereq} before crafting {name}.")
+            return
+
+        if name in gs.upgrades:
+            print("You already have this upgrade.")
+            return
+        if gs.player.wood < cost:
+            print("Not enough wood.")
+            return
+
+        gs.player.wood -= cost
+        gs.upgrades.add(name)
+
+        # Apply upgrade effects
+        if name == "Spear":
+            gs.player.damage += 2
+        elif name == "Axe":
+            gs.player.gather_bonus = 2
+        elif name == "Hoe":
+            gs.has_field = True
+            gs.field_state = "empty"
+            gs.field_timer = 0
+        elif name == "Bow":
+            gs.has_bow = True
+        elif name == "Watchtower":
+            gs.has_watchtower = True
+
+        print(f"You craft {name}. {desc}")
         return
-    name, cost, desc = recipes[idx]
 
-    if name in gs.crafted:
-        print("You already crafted this.")
+    # ---- Handle Craftables ----
+    if choice.startswith("c"):
+        idx = int(choice[1:]) - 1
+        if not (0 <= idx < len(craftables)):
+            print("Invalid choice.")
+            return
+        name, cost, desc = craftables[idx]
+        if gs.player.wood < cost:
+            print("Not enough wood.")
+            return
+
+        gs.player.wood -= cost
+
+        if "Reinforce" in name:
+            for f in gs.fences.values():
+                f.max_hp += 10
+                f.hp += 10
+            gs.reinforce_cost += 5  # escalate cost
+            print("Your fences grow sturdier, with thicker planks and braces.")
+        elif name == "Trap":
+            gs.traps += 1
+            print("You build a trap and hide it near the fence line.")
+        elif name == "Arrow Batch":
+            gs.arrows += 5
+            print("You craft 5 new arrows and bundle them neatly.")
+
         return
-    if gs.player.wood < cost:
-        print("Not enough wood.")
-        return
 
-    gs.player.wood -= cost
-    gs.crafted.add(name)
-
-    # Apply effects
-    if name == "Spear":
-        gs.player.damage = int(gs.player.damage * 1.3)
-
-    elif name == "Axe":
-        gs.player.gather_bonus = 5
-
-    elif name == "Hoe":
-        gs.has_field = True
-        gs.field_state = "empty"
-        gs.field_timer = 0
-
-    elif name.startswith("Reinforced Fences"):
-        bonus = 10
-        for f in gs.fences.values():
-            f.max_hp += bonus
-            f.hp += bonus
-        print(f"All fences reinforced. Max HP +{bonus} each.")
-        gs.defense_bonus = getattr(gs, "defense_bonus", 0) + 0.05
-        gs.reinforce_cost = getattr(gs, "reinforce_cost", 10) + 5 # Increase future cost
-
-    elif name == "Trap":
-        max_possible = gs.player.wood // 5
-        if max_possible <= 0:
-            print("Not enough wood to make even one trap.")
-            return
-        try:
-            n = int(input(f"Craft how many traps? (1–{max_possible}): ").strip())
-        except ValueError:
-            print("Cancelled.")
-            return
-        if not (1 <= n <= max_possible):
-            print("Cancelled.")
-            return
-        gs.player.wood -= n * 5
-        gs.traps += n
-        print(f"You craft {n} trap{'s' if n > 1 else ''}. They will trigger against new waves at night.")
-        gs.crafted.remove(name)
-
-    elif name == "Bow":
-        if gs.has_bow:
-            print("You already have a bow.")
-            return
-        gs.has_bow = True
-        print("You craft a sturdy bow. Now you can shoot enemies from afar.")
-
-    elif name == "Arrow Batch":
-        max_possible = gs.player.wood // 2
-        if max_possible <= 0:
-            print("Not enough wood to make even one batch.")
-            return
-        try:
-            n = int(input(f"Craft how many batches? (1–{max_possible}): ").strip())
-        except ValueError:
-            print("Cancelled.")
-            return
-        if not (1 <= n <= max_possible):
-            print("Cancelled.")
-            return
-        gs.player.wood -= n * 2
-        gs.arrows += n
-        print(f"You craft {n} arrow{'s' if n > 1 else ''}. They feel deadly and sharp.")
-        gs.crafted.add(name)
-
-    elif name == "Watchtower":
-        if gs.has_watchtower:
-            print("You already have a watchtower.")
-            return
-        gs.has_watchtower = True
-        print("You build a watchtower above the cabin. You can now shoot from any side.")
-    # print(f"You craft a {name}. {desc}")
+    print("Invalid input.")
 
 def do_gather(gs: GameState):
     base = random.randint(2, 4)
@@ -359,16 +352,8 @@ def morning_upkeep(gs: GameState):
         dmg = 2
         gs.player.hp = max(0, gs.player.hp - dmg)
         print("You have nothing to eat. You feel weaker. (-2 HP)")
-    # Passive experience scaling per survived day
-    scale_factor = 1.05  # +5% overall growth per day survived
-    old_dmg = gs.player.damage
-    old_hp = gs.player.max_hp
-    gs.player.max_hp = int(gs.player.max_hp * scale_factor)
-    gs.player.damage = int(gs.player.damage * scale_factor)
-    # heal to full each morning if wounded (optional, comment out if too easy)
-    gs.player.hp = gs.player.max_hp
-    print(f"You feel hardier and more seasoned. Damage {old_dmg}→{gs.player.damage}, Max HP {old_hp}→{gs.player.max_hp}.")
     gs.daily_wood_bonus_combo = 0
+    gs.player.update_stats(gs.day_num)
 
 def main():
     random.seed()
