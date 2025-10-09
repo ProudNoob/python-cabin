@@ -83,7 +83,7 @@ def show_day_status(gs: GameState, actions_left: int):
     hour = 6 + (total - actions_left)
     print(DIV)
     print(f"DAY {gs.day_num} — {hour:02d}:00 | Actions left: {actions_left}")
-    print(f"HP {gs.player.hp}/{gs.player.max_hp} | Wood {gs.player.wood} | Food {gs.player.food} | Seeds {gs.player.seeds}")
+    print(f"HP {gs.player.hp}/{gs.player.max_hp} | Wood {gs.player.wood} | Food {gs.player.food} | Seeds {gs.player.seeds} | Arrows {gs.arrows} | Traps {gs.traps}")
     for s in SIDES:
         f = gs.fence(s)
         print(f"  {s:<5} Fence: {f.hp:02d}/{f.max_hp}")
@@ -108,6 +108,9 @@ def do_craft(gs: GameState):
         ("Spear", 5, "Increase night attack damage by +2."),
         ("Axe", 6, "Gather +2 extra wood each time."),
         ("Hoe", 4, "Unlock 'Tend Field' action to grow food."),
+        ("Bow", 8, "Craft a bow to shoot adjacent sides with arrows."),
+        ("Arrow Batch", 2, "Craft 5 arrows for ranged attacks."),
+        ("Watchtower", 25, "Build a tower to shoot from any side, but you cannot defend directly."),
         (f"Reinforced Fences ({reinforce_cost} wood)", reinforce_cost, "Boost all fence max HP by +10, cost rises each time."),
         ("Trap", 5, "Consumes 5 wood. Kills 1–3 monsters from each new wave."),
     ]
@@ -142,21 +145,25 @@ def do_craft(gs: GameState):
 
     # Apply effects
     if name == "Spear":
-        gs.player.damage += 2
+        gs.player.damage = int(gs.player.damage * 1.3)
+
     elif name == "Axe":
-        gs.player.gather_bonus = 2
+        gs.player.gather_bonus = 5
+
     elif name == "Hoe":
         gs.has_field = True
         gs.field_state = "empty"
         gs.field_timer = 0
+
     elif name.startswith("Reinforced Fences"):
         bonus = 10
         for f in gs.fences.values():
             f.max_hp += bonus
             f.hp += bonus
         print(f"All fences reinforced. Max HP +{bonus} each.")
-        # Increase future cost
-        gs.reinforce_cost = getattr(gs, "reinforce_cost", 10) + 5
+        gs.defense_bonus = getattr(gs, "defense_bonus", 0) + 0.05
+        gs.reinforce_cost = getattr(gs, "reinforce_cost", 10) + 5 # Increase future cost
+
     elif name == "Trap":
         max_possible = gs.player.wood // 5
         if max_possible <= 0:
@@ -173,14 +180,48 @@ def do_craft(gs: GameState):
         gs.player.wood -= n * 5
         gs.traps += n
         print(f"You craft {n} trap{'s' if n > 1 else ''}. They will trigger against new waves at night.")
-    print(f"You craft a {name}. {desc}")
+        gs.crafted.remove(name)
+
+    elif name == "Bow":
+        if gs.has_bow:
+            print("You already have a bow.")
+            return
+        gs.has_bow = True
+        print("You craft a sturdy bow. Now you can shoot enemies from afar.")
+
+    elif name == "Arrow Batch":
+        max_possible = gs.player.wood // 2
+        if max_possible <= 0:
+            print("Not enough wood to make even one batch.")
+            return
+        try:
+            n = int(input(f"Craft how many batches? (1–{max_possible}): ").strip())
+        except ValueError:
+            print("Cancelled.")
+            return
+        if not (1 <= n <= max_possible):
+            print("Cancelled.")
+            return
+        gs.player.wood -= n * 2
+        gs.arrows += n
+        print(f"You craft {n} arrow{'s' if n > 1 else ''}. They feel deadly and sharp.")
+        gs.crafted.add(name)
+
+    elif name == "Watchtower":
+        if gs.has_watchtower:
+            print("You already have a watchtower.")
+            return
+        gs.has_watchtower = True
+        print("You build a watchtower above the cabin. You can now shoot from any side.")
+    # print(f"You craft a {name}. {desc}")
 
 def do_gather(gs: GameState):
     base = random.randint(2, 4)
-    bonus = getattr(gs.player, "gather_bonus", 0)
+    bonus = getattr(gs.player, "gather_bonus", 0) + gs.daily_wood_bonus_combo
+    gs.daily_wood_bonus_combo += 2
     gained = base + bonus
     gs.player.wood += gained
-    print(f"You gather wood at the treeline. +{gained} wood.")
+    print(f"You gather wood at the treeline. +{gained} wood. (+{gs.daily_wood_bonus_combo} combo)")
 
 def do_forage(gs: GameState):
     r = random.random()
@@ -318,7 +359,16 @@ def morning_upkeep(gs: GameState):
         dmg = 2
         gs.player.hp = max(0, gs.player.hp - dmg)
         print("You have nothing to eat. You feel weaker. (-2 HP)")
-    save_game(gs)
+    # Passive experience scaling per survived day
+    scale_factor = 1.05  # +5% overall growth per day survived
+    old_dmg = gs.player.damage
+    old_hp = gs.player.max_hp
+    gs.player.max_hp = int(gs.player.max_hp * scale_factor)
+    gs.player.damage = int(gs.player.damage * scale_factor)
+    # heal to full each morning if wounded (optional, comment out if too easy)
+    gs.player.hp = gs.player.max_hp
+    print(f"You feel hardier and more seasoned. Damage {old_dmg}→{gs.player.damage}, Max HP {old_hp}→{gs.player.max_hp}.")
+    gs.daily_wood_bonus_combo = 0
 
 def main():
     random.seed()

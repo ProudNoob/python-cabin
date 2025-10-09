@@ -8,16 +8,27 @@ SIDES = ("North", "East", "South", "West")
 
 @dataclass
 class Player:
-    max_hp: int = 20
-    hp: int = 20
+    base_hp: int = 20
+    base_damage: int = 4
     wood: int = 5
     food: int = 3
     seeds: int = 0
-    damage: int = 4
     defending: bool = False
-    side: str = "Center"  # Center by day; at night set to one of SIDES
-    # day config
+    side: str = "Center"  # set during night
     day_actions_per_day: int = 14
+    gather_bonus: int = 0
+
+    # Computed each morning:
+    max_hp: int = 20
+    hp: int = 20
+    damage: int = 4
+
+    def update_stats(self, day_num: int):
+        self.max_hp = self.base_hp + day_num * 2
+        self.damage = self.base_damage + (day_num // 2)
+        # heal if new max_hp exceeds current hp
+        if self.hp > self.max_hp:
+            self.hp = self.max_hp
 
     def heal(self, amount: int) -> int:
         before = self.hp
@@ -56,13 +67,11 @@ class Enemy:
         return self.hp > 0
 
 def scaled_enemy(day_num: int, side: str) -> Enemy:
-    # gentle scaling
-    base_hp = 5 + day_num // 1
-    base_dmg = 2 + max(0, (day_num - 1) // 2)
-    # randomize a bit
-    hp = base_hp + random.randint(0, 2)
-    dmg = base_dmg + random.randint(0, 1)
-    return Enemy(side=side, hp=hp, dmg=dmg)
+    base_hp = 5 + int(day_num * 1.2)
+    base_dmg = 2 + int(day_num * 0.5)
+    hp = base_hp + random.randint(-1, 2)
+    dmg = base_dmg + random.choice([0, 0, 1])
+    return Enemy(side=side, hp=max(1, hp), dmg=dmg)
 
 @dataclass
 class GameState:
@@ -75,8 +84,20 @@ class GameState:
         "West":  Fence("West Fence"),
     })
     alive: bool = True
-    campfire_on: bool = True
+    crafted: set = field(default_factory=set)
+    reinforce_cost: int = 10
     traps: int = 0
+    defense_bonus: float = 0.0
+    campfire_on: bool = True
+    has_field: bool = False
+    field_state: str = "empty"
+    field_timer: int = 0
+    field_watered: int = 0
+    daily_wood_bonus_combo: int = 0
+    has_bow: bool = False
+    arrows: int = 0
+    has_watchtower: bool = False
+    in_tower: bool = False
 
     def fence(self, side: str) -> Fence:
         return self.fences[side]
